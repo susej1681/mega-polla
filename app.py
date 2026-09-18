@@ -36,6 +36,12 @@ def extraer_hora(hora_str):
         if h != 12: h += 12
     return h
 
+def hora_legible(hora_num):
+    if hora_num == 0: return "12:00 AM"
+    if hora_num < 12: return f"{hora_num}:00 AM"
+    if hora_num == 12: return "12:00 PM"
+    return f"{hora_num-12}:00 PM"
+
 @st.cache_data(ttl=120)
 def cargar_hoja(sheet_id):
     try:
@@ -120,6 +126,15 @@ def mostrar_top(top, cantidad=10):
     for i, x in enumerate(top[:cantidad], 1):
         st.write(f"{i}. **{fmt_num(x['num'])} {ANIMALITOS_DICT[x['num']]}** ({x['score']}%)")
 
+def mostrar_ultimo(df, nombre):
+    if df.empty:
+        st.write(f"**{nombre}:** Sin datos")
+        return
+    ultimo = df.iloc[-1]
+    fecha_txt = ultimo["fecha_dt"].strftime("%d/%m/%Y")
+    hora_txt = hora_legible(int(ultimo["hora_num"]))
+    st.write(f"**{nombre}:** {fecha_txt} - {hora_txt} → {fmt_num(ultimo['numero'])} {ANIMALITOS_DICT[ultimo['numero']]}")
+
 def main():
     st.title("🎰 Mega Polla IA")
     st.caption("Super Polla · Animaniacs · 3 loterías")
@@ -130,6 +145,13 @@ def main():
         df_g = cargar_hoja(GRANJITA_ID)
         df_l = cargar_hoja(LOTTO_ID)
         df_r = cargar_hoja(RULETA_ID)
+    
+    # ÚLTIMOS DATOS
+    st.markdown("### 📅 Últimos datos cargados")
+    mostrar_ultimo(df_g, "GRANJITA")
+    mostrar_ultimo(df_l, "LOTTO")
+    mostrar_ultimo(df_r, "RULETA")
+    st.markdown("---")
     
     st.markdown("## 🌅 SUPER POLLA MAÑANA (9AM-1PM)")
     g_m = analizar(filtrar_turno(df_g, "mañana"))
