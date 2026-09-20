@@ -135,24 +135,67 @@ def mostrar_ultimo(df, nombre):
     hora_txt = hora_legible(int(ultimo["hora_num"]))
     st.write(f"**{nombre}:** {fecha_txt} - {hora_txt} → {fmt_num(ultimo['numero'])} {ANIMALITOS_DICT[ultimo['numero']]}")
 
+def armar_3_pollas(lista_g, lista_l, lista_r=None, tipo="2+2+2"):
+    """Arma 3 pollas: Fuerte, Variación, Mezcla."""
+    resultado = {"polla_1": [], "polla_2": [], "polla_3": []}
+
+    if tipo == "2+2+2" and lista_r is not None:
+        # Polla 1: #1 y #2 de cada
+        if len(lista_g) >= 2 and len(lista_l) >= 2 and len(lista_r) >= 2:
+            resultado["polla_1"] = lista_g[:2] + lista_l[:2] + lista_r[:2]
+        # Polla 2: #3 y #4 de cada
+        if len(lista_g) >= 4 and len(lista_l) >= 4 and len(lista_r) >= 4:
+            resultado["polla_2"] = lista_g[2:4] + lista_l[2:4] + lista_r[2:4]
+        # Polla 3: #1, #3 de cada
+        if len(lista_g) >= 3 and len(lista_l) >= 3 and len(lista_r) >= 3:
+            resultado["polla_3"] = [lista_g[0], lista_g[2], lista_l[0], lista_l[2], lista_r[0], lista_r[2]]
+    elif tipo == "3+3":
+        # Polla 1: #1, #2, #3
+        if len(lista_g) >= 3 and len(lista_l) >= 3:
+            resultado["polla_1"] = lista_g[:3] + lista_l[:3]
+        # Polla 2: #4, #5, #6
+        if len(lista_g) >= 6 and len(lista_l) >= 6:
+            resultado["polla_2"] = lista_g[3:6] + lista_l[3:6]
+        # Polla 3: #1, #4, #7 de cada
+        if len(lista_g) >= 7 and len(lista_l) >= 7:
+            resultado["polla_3"] = [lista_g[0], lista_g[3], lista_g[6], lista_l[0], lista_l[3], lista_l[6]]
+
+    return resultado
+
+def mostrar_pollas(pollas):
+    def fmt_polla(lista):
+        return " - ".join([f"{fmt_num(x['num'])} {ANIMALITOS_DICT[x['num']]}" for x in lista])
+
+    if len(pollas["polla_1"]) == 6:
+        st.markdown("**🎯 POLLA 1 (FUERTE - los más potentes)**")
+        st.success(fmt_polla(pollas["polla_1"]))
+    if len(pollas["polla_2"]) == 6:
+        st.markdown("**⚡ POLLA 2 (VARIACIÓN - los segundos)**")
+        st.info(fmt_polla(pollas["polla_2"]))
+    if len(pollas["polla_3"]) == 6:
+        st.markdown("**🔀 POLLA 3 (MEZCLA - #1 y #3)**")
+        st.warning(fmt_polla(pollas["polla_3"]))
+
 def main():
     st.title("🎰 Mega Polla IA")
-    st.caption("Super Polla · Animaniacs · 3 loterías")
+    st.caption("Super Polla · Animaniacs · 3 Pollas (Fuerte, Variación, Mezcla)")
+
     if st.button("🔄 Recargar"):
         st.cache_data.clear()
         st.rerun()
+
     with st.spinner("Cargando loterías..."):
         df_g = cargar_hoja(GRANJITA_ID)
         df_l = cargar_hoja(LOTTO_ID)
         df_r = cargar_hoja(RULETA_ID)
-    
-    # ÚLTIMOS DATOS
+
     st.markdown("### 📅 Últimos datos cargados")
     mostrar_ultimo(df_g, "GRANJITA")
     mostrar_ultimo(df_l, "LOTTO")
     mostrar_ultimo(df_r, "RULETA")
     st.markdown("---")
-    
+
+    # ============ SUPER POLLA MAÑANA ============
     st.markdown("## 🌅 SUPER POLLA MAÑANA (9AM-1PM)")
     g_m = analizar(filtrar_turno(df_g, "mañana"))
     l_m = analizar(filtrar_turno(df_l, "mañana"))
@@ -167,12 +210,12 @@ def main():
     with c3:
         st.markdown("**RULETA**")
         mostrar_top(r_m)
-    if len(g_m) >= 2 and len(l_m) >= 2 and len(r_m) >= 2:
-        polla = g_m[:2] + l_m[:2] + r_m[:2]
-        st.markdown("### 🎯 POLLA MAÑANA (2+2+2)")
-        st.success(" - ".join([f"{fmt_num(x['num'])} {ANIMALITOS_DICT[x['num']]}" for x in polla]))
+    pollas_m = armar_3_pollas(g_m, l_m, r_m, tipo="2+2+2")
+    st.markdown("### 🎯 Pollas Mañana")
+    mostrar_pollas(pollas_m)
     st.markdown("---")
-    
+
+    # ============ SUPER POLLA TARDE ============
     st.markdown("## 🌇 SUPER POLLA TARDE (3PM-7PM)")
     g_t = analizar(filtrar_turno(df_g, "tarde"))
     l_t = analizar(filtrar_turno(df_l, "tarde"))
@@ -187,12 +230,12 @@ def main():
     with c3:
         st.markdown("**RULETA**")
         mostrar_top(r_t)
-    if len(g_t) >= 2 and len(l_t) >= 2 and len(r_t) >= 2:
-        polla = g_t[:2] + l_t[:2] + r_t[:2]
-        st.markdown("### 🎯 POLLA TARDE (2+2+2)")
-        st.success(" - ".join([f"{fmt_num(x['num'])} {ANIMALITOS_DICT[x['num']]}" for x in polla]))
+    pollas_t = armar_3_pollas(g_t, l_t, r_t, tipo="2+2+2")
+    st.markdown("### 🎯 Pollas Tarde")
+    mostrar_pollas(pollas_t)
     st.markdown("---")
-    
+
+    # ============ ANIMANIACS ============
     st.markdown("## 🐾 ANIMANIACS (8AM-7PM)")
     g_f = analizar(filtrar_turno(df_g, "todo"))
     l_f = analizar(filtrar_turno(df_l, "todo"))
@@ -203,10 +246,9 @@ def main():
     with c2:
         st.markdown("**LOTTO**")
         mostrar_top(l_f)
-    if len(g_f) >= 3 and len(l_f) >= 3:
-        anim = g_f[:3] + l_f[:3]
-        st.markdown("### 🎯 ANIMANIACS (3+3)")
-        st.success(" - ".join([f"{fmt_num(x['num'])} {ANIMALITOS_DICT[x['num']]}" for x in anim]))
+    pollas_a = armar_3_pollas(g_f, l_f, tipo="3+3")
+    st.markdown("### 🎯 Pollas Animaniacs")
+    mostrar_pollas(pollas_a)
 
 if __name__ == "__main__":
     main()
