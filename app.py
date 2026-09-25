@@ -4,14 +4,11 @@ import re
 from collections import Counter
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Mega Polla Fríos V2", page_icon="🎰", layout="centered")
+st.set_page_config(page_title="Mega Polla Fríos V3", page_icon="🎰", layout="centered")
 
 GRANJITA_ID = "1JpJgdyqu3HP4TlNyDocQ7WQjnsDfkUMP4Aj3q97TmHY"
 LOTTO_ID = "1Wm31ULE_YckLHEaek8Kre42UMdglkli-QeLpHxzFf-I"
 RULETA_ID = "1MG9Ycjikd2LunDtjFy7LHjM7arC5_P0Xymn8H7ABhVo"
-
-VENTANA_FRIOS = 5
-EXCLUIR_DESDE = 10
 
 ANIMALITOS_DICT = {
     0: "Delfín", 1: "Carnero", 2: "Toro", 3: "Ciempiés", 4: "Alacrán",
@@ -91,7 +88,6 @@ def cargar_hoja(sheet_id, nombre_loteria):
                             "fecha_dt": fd,
                             "fecha": fd.strftime("%d/%m/%Y"),
                             "hora_num": hora_n,
-                            "hora_str": formatear_hora(hora_n),
                             "numero": n,
                             "loteria": nombre_loteria
                         })
@@ -108,54 +104,71 @@ def filtrar_turno(df, turno):
     if df.empty: return df
     if turno == "mañana": return df[(df["hora_num"] >= 9) & (df["hora_num"] <= 13)]
     if turno == "tarde": return df[(df["hora_num"] >= 15) & (df["hora_num"] <= 19)]
-    if turno == "todo": return df[(df["hora_num"] >= 8) & (df["hora_num"] <= 19)]
+    if turno == "animaniacs": return df[(df["hora_num"] >= 8) & (df["hora_num"] <= 19)]
     return df
 
 
-def dias_sin_salir(df_completo):
-    fechas = sorted(df_completo["fecha_dt"].dropna().unique())
-    if not fechas: return {n: 999 for n in ANIMALITOS_DICT.keys()}
-    ultima = fechas[-1]
-    resultado = {}
-    for num in ANIMALITOS_DICT.keys():
-        df_num = df_completo[df_completo["numero"] == num]
-        if df_num.empty:
-            resultado[num] = 999
-        else:
-            ult = df_num["fecha_dt"].max()
-            resultado[num] = (ultima - ult).days
-    return resultado
-
-
-def get_frios_pool(df_combinado, df_g_completo, fecha_hoy_str):
+def analizar_pool(df_combinado, dias_ventana):
+    """Analiza el pool: cuenta veces por animalito en toda la ventana."""
     if df_combinado.empty:
-        return [], {}, set()
+        return [], {}
 
-    df_hoy = df_combinado[df_combinado["fecha"] == fecha_hoy_str]
-    salieron_hoy = set(df_hoy["numero"].tolist())
+    fechas_str = [d.strftime("%d/%m/%Y") for d in dias_ventana]
+    df_vent = df_combinado[df_combinado["fecha"].isin(fechas_str)]
 
-    fechas = sorted(df_combinado["fecha_dt"].dropna().unique())
-    if len(fechas) < VENTANA_FRIOS:
-        ventana = fechas
-    else:
-        ventana = fechas[-VENTANA_FRIOS:]
+    if df_vent.empty:
+        return [], {}
 
-    df_vent = df_combinado[df_combinado["fecha_dt"].isin(ventana)]
     conteo = Counter(df_vent["numero"].tolist())
-
-    dias_sin = dias_sin_salir(df_g_completo)
-
-    candidatos = [n for n in ANIMALITOS_DICT.keys() 
-                  if dias_sin[n] < EXCLUIR_DESDE and n not in salieron_hoy]
-    candidatos.sort(key=lambda n: (conteo.get(n, 0), n))
-
-    return candidatos, conteo, salieron_hoy
+    ordenados = sorted(conteo.items(), key=lambda x: x[1], reverse=True)
+    return ordenados, conteo
 
 
-def armar_2_pollas(frios):
-    if len(frios) < 12:
+def armar_pollas(ordenados):
+    """Arma 2 pollas de 6 animalitos distintos cada una. Puede repetir entre pollas."""
+    if len(ordenados) < 6:
         return [], []
-    return frios[0:6], frios[6:12]
+
+    # Pool de animalitos ordenados por actividad
+    nums = [n for n, _ in ordenados]
+
+    # Completar con los que no salieron (para tener al menos 12)
+    if len(nums) < 12:
+        todos = [n for n in ANIMALITOS_DICT.keys() if n not in nums]
+        nums.extend(todos)
+
+    # Polla 1: los 6 más activos
+    polla_1 = []
+    for n in nums:
+        if n not in polla_1:
+            polla_1.append(n)
+        if len(polla_1) >= 6:
+            break
+
+    # Polla 2: los siguientes 6 (pero puede repetir hasta 2 de la polla 1 si son muy fuertes)
+    polla_2 = []
+    # Primero los siguientes
+    for n in nums:
+        if n not in polla_1:
+            polla_2.append(n)
+        if len(polla_2) >= 4:
+            break
+    # Completar con 2 de los top de polla_1 (los más fuertes)
+    for n in polla_1[:3]:
+        if len(polla_2) >= 6:
+            break
+        if n not in polla_2:
+            polla_2.append(n)
+
+    # Si aún falta, completar
+    if len(polla_2) < 6:
+        for n in nums:
+            if n not in polla_2:
+                polla_2.append(n)
+            if len(polla_2) >= 6:
+                break
+
+    return polla_1[:6], polla_2[:6]
 
 
 def mostrar_dia_completo(df_g, df_l, df_r, fecha_str, nombre_dia):
@@ -189,9 +202,25 @@ def mostrar_dia_completo(df_g, df_l, df_r, fecha_str, nombre_dia):
     return True
 
 
+def mostrar_pollas(nombre, ordenados, conteo, loterias):
+    """Muestra las 2 pollas para un bloque."""
+    st.markdown(f"### {nombre}")
+    st.caption(f"Juega en: {' + '.join(loterias)}")
+
+    p1, p2 = armar_pollas(ordenados)
+
+    if p1 and p2:
+        st.markdown("**🎯 POLLA 1:**")
+        st.success(" - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p1]))
+        st.markdown("**⚡ POLLA 2:**")
+        st.info(" - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p2]))
+    else:
+        st.warning("Sin suficientes datos.")
+
+
 def main():
-    st.title("🎰 Mega Polla Fríos V2")
-    st.caption("Vista día por día · Pool combinado · 6 pollas al día")
+    st.title("🎰 Mega Polla Fríos V3")
+    st.caption("Vista día por día · Sin excluir los de hoy · 6 pollas al día")
 
     if st.button("🔄 Recargar"):
         st.cache_data.clear()
@@ -230,7 +259,10 @@ def main():
             d += timedelta(days=1)
         desc = f"Semana en curso: {len(dias_ventana)} días"
 
-    st.info(f"📊 **{desc}**")
+    # Agregar HOY a la ventana (para el análisis)
+    dias_analisis = dias_ventana + [hoy]
+
+    st.info(f"📊 **{desc}** + HOY")
     st.markdown("---")
 
     # Vista día por día
@@ -242,7 +274,6 @@ def main():
         nombre = DIAS[dia.weekday()]
         mostrar_dia_completo(df_g, df_l, df_r, fecha_str, nombre)
 
-    # HOY (siempre)
     mostrar_dia_completo(df_g, df_l, df_r, hoy_str, nombre_dia)
 
     st.markdown("---")
@@ -250,60 +281,36 @@ def main():
     # POLLAS
     st.markdown("## 🎯 POLLAS PARA HOY")
 
-    # MAÑANA
+    # MAÑANA (9AM-1PM) - 3 loterías
     st.markdown("### 🌅 SUPER POLLA MAÑANA (9AM-1PM)")
     g_m = filtrar_turno(df_g, "mañana")
     l_m = filtrar_turno(df_l, "mañana")
     r_m = filtrar_turno(df_r, "mañana")
     df_m = pd.concat([g_m, l_m, r_m], ignore_index=True)
-    frios_m, _, _ = get_frios_pool(df_m, df_g, hoy_str)
-    p1_m, p2_m = armar_2_pollas(frios_m)
-
-    if p1_m and p2_m:
-        st.markdown("**🎯 POLLA 1:**")
-        st.success(" - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p1_m]))
-        st.markdown("**⚡ POLLA 2:**")
-        st.info(" - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p2_m]))
-    else:
-        st.warning("Sin suficientes fríos.")
+    ordenados_m, conteo_m = analizar_pool(df_m, dias_analisis)
+    mostrar_pollas("", ordenados_m, conteo_m, ["Granjita", "Lotto", "Ruleta"])
     st.markdown("---")
 
-    # TARDE
+    # TARDE (3PM-7PM) - 3 loterías
     st.markdown("### 🌇 SUPER POLLA TARDE (3PM-7PM)")
     g_t = filtrar_turno(df_g, "tarde")
     l_t = filtrar_turno(df_l, "tarde")
     r_t = filtrar_turno(df_r, "tarde")
     df_t = pd.concat([g_t, l_t, r_t], ignore_index=True)
-    frios_t, _, _ = get_frios_pool(df_t, df_g, hoy_str)
-    p1_t, p2_t = armar_2_pollas(frios_t)
-
-    if p1_t and p2_t:
-        st.markdown("**🎯 POLLA 1:**")
-        st.success(" - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p1_t]))
-        st.markdown("**⚡ POLLA 2:**")
-        st.info(" - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p2_t]))
-    else:
-        st.warning("Sin suficientes fríos.")
+    ordenados_t, conteo_t = analizar_pool(df_t, dias_analisis)
+    mostrar_pollas("", ordenados_t, conteo_t, ["Granjita", "Lotto", "Ruleta"])
     st.markdown("---")
 
-    # ANIMANIACS
+    # ANIMANIACS (8AM-7PM) - 2 loterías (Granjita + Lotto)
     st.markdown("### 🐾 ANIMANIACS (8AM-7PM)")
-    g_a = filtrar_turno(df_g, "todo")
-    l_a = filtrar_turno(df_l, "todo")
+    g_a = filtrar_turno(df_g, "animaniacs")
+    l_a = filtrar_turno(df_l, "animaniacs")
     df_a = pd.concat([g_a, l_a], ignore_index=True)
-    frios_a, _, _ = get_frios_pool(df_a, df_g, hoy_str)
-    p1_a, p2_a = armar_2_pollas(frios_a)
-
-    if p1_a and p2_a:
-        st.markdown("**🎯 POLLA 1:**")
-        st.success(" - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p1_a]))
-        st.markdown("**⚡ POLLA 2:**")
-        st.info(" - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p2_a]))
-    else:
-        st.warning("Sin suficientes fríos.")
+    ordenados_a, conteo_a = analizar_pool(df_a, dias_analisis)
+    mostrar_pollas("", ordenados_a, conteo_a, ["Granjita", "Lotto"])
 
     st.markdown("---")
-    st.caption(f"Filtros: fríos puros · Excluye enjaulados {EXCLUIR_DESDE}+ días · Excluye los que ya salieron hoy")
+    st.caption("Sin excluir los que ya salieron hoy · Puede repetir animalitos entre pollas si el sistema lo ve fuerte")
 
 
 if __name__ == "__main__":
