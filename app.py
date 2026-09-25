@@ -11,7 +11,6 @@ RULETA_ID = "1MG9Ycjikd2LunDtjFy7LHjM7arC5_P0Xymn8H7ABhVo"
 
 VENTANA_FRIOS = 5
 EXCLUIR_DESDE = 10
-DESCARTE_ATRASO = 60
 
 ANIMALITOS_DICT = {
     0: "Delfín", 1: "Carnero", 2: "Toro", 3: "Ciempiés", 4: "Alacrán",
@@ -105,13 +104,13 @@ def filtrar_turno(df, turno):
     return df
 
 
-def dias_sin_salir(df, fecha_actual):
-    fechas = sorted(df["fecha_dt"].dropna().unique())
+def dias_sin_salir(df_completo):
+    fechas = sorted(df_completo["fecha_dt"].dropna().unique())
     if not fechas: return {n: 999 for n in ANIMALITOS_DICT.keys()}
     ultima = fechas[-1]
     resultado = {}
     for num in ANIMALITOS_DICT.keys():
-        df_num = df[df["numero"] == num]
+        df_num = df_completo[df_completo["numero"] == num]
         if df_num.empty:
             resultado[num] = 999
         else:
@@ -120,58 +119,57 @@ def dias_sin_salir(df, fecha_actual):
     return resultado
 
 
-def get_frios(df_turno, df_completo, fecha_actual):
-    """Devuelve lista de fríos ordenados por menos salidas."""
-    if df_turno.empty:
-        return []
-    
-    fechas = sorted(df_turno["fecha_dt"].dropna().unique())
+def get_frios_combinados(df_turno_combinado, df_g_completo):
+    if df_turno_combinado.empty:
+        return [], {}
+
+    fechas = sorted(df_turno_combinado["fecha_dt"].dropna().unique())
     if len(fechas) < VENTANA_FRIOS:
         ventana = fechas
     else:
         ventana = fechas[-VENTANA_FRIOS:]
-    
-    df_vent = df_turno[df_turno["fecha_dt"].isin(ventana)]
+
+    df_vent = df_turno_combinado[df_turno_combinado["fecha_dt"].isin(ventana)]
     conteo = Counter(df_vent["numero"].tolist())
-    
-    dias_sin = dias_sin_salir(df_completo, fecha_actual)
-    
-    # Excluir enjaulados 10+
+
+    dias_sin = dias_sin_salir(df_g_completo)
+
     candidatos = [n for n in ANIMALITOS_DICT.keys() if dias_sin[n] < EXCLUIR_DESDE]
-    
-    # Ordenar por menos salidas
     candidatos.sort(key=lambda n: (conteo.get(n, 0), n))
-    
-    return candidatos
+
+    return candidatos, conteo
 
 
 def armar_2_pollas(frios):
-    """Arma 2 pollas de 6 animalitos distintos."""
     if len(frios) < 12:
         return [], []
-    
-    polla_1 = frios[0:6]
-    polla_2 = frios[6:12]
-    
-    return polla_1, polla_2
+    return frios[0:6], frios[6:12]
 
 
-def mostrar_pollas(p1, p2, titulo, loterias):
+def mostrar_pollas(frios, p1, p2, titulo, loterias, conteo):
     st.markdown(f"### 🎯 {titulo}")
-    st.caption(f"Juega en: {' + '.join(loterias)}")
-    
-    if not p1 or not p2:
-        st.warning("Sin suficientes fríos para armar pollas.")
+    st.caption(f"Juega en: {' + '.join(loterias)} · Pool combinado")
+
+    if not frios:
+        st.warning("Sin fríos disponibles.")
         return
-    
-    st.markdown("**🎯 POLLA 1 (FRÍOS TOP 6):**")
-    linea_1 = " - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p1])
-    st.success(linea_1)
-    
-    st.markdown("**⚡ POLLA 2 (FRÍOS 7-12):**")
-    linea_2 = " - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p2])
-    st.info(linea_2)
-    
+
+    st.markdown("**❄️ TOP 10 FRÍOS DEL POOL (últimos 5 días):**")
+    for i, n in enumerate(frios[:10], 1):
+        veces = conteo.get(n, 0)
+        st.write(f"{i}. **{fmt_num(n)} {ANIMALITOS_DICT[n]}** — {veces} veces en últimos 5 días")
+
+    st.markdown("---")
+
+    if p1 and p2:
+        st.markdown("**🎯 POLLA 1 (FRÍOS TOP 6):**")
+        linea_1 = " - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p1])
+        st.success(linea_1)
+
+        st.markdown("**⚡ POLLA 2 (FRÍOS 7-12):**")
+        linea_2 = " - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p2])
+        st.info(linea_2)
+
     st.markdown("")
 
 
@@ -184,87 +182,81 @@ def mostrar_ultimo(df, nombre):
 
 
 def verificar_polla(polla, nums_bloque):
-    """Verifica si los 6 animalitos de la polla salieron en el bloque."""
     return all(n in nums_bloque for n in polla)
 
 
 def backtest(df_g, df_l, df_r, dias_test=55):
-    """Backtest: simula los últimos N días y verifica cuántas pollas pegaron."""
-    
-    # Obtener fechas comunes (las que tengan los 3)
     fechas_g = set(df_g["fecha_dt"].dropna().unique())
     fechas_l = set(df_l["fecha_dt"].dropna().unique())
     fechas_r = set(df_r["fecha_dt"].dropna().unique())
-    
     fechas_comunes = sorted(fechas_g & fechas_l & fechas_r)
-    
+
     if len(fechas_comunes) < dias_test + 6:
         dias_test = len(fechas_comunes) - 6
-    
+
+    if dias_test < 1:
+        return {}, 0
+
     fechas_test = fechas_comunes[-dias_test:]
-    
+
     resultados = {
         "mañana": {"polla_1": 0, "polla_2": 0},
         "tarde": {"polla_1": 0, "polla_2": 0},
         "animaniacs": {"polla_1": 0, "polla_2": 0}
     }
     total_dias = 0
-    
+
     for fecha in fechas_test:
         df_g_hasta = df_g[df_g["fecha_dt"] < fecha]
         df_l_hasta = df_l[df_l["fecha_dt"] < fecha]
         df_r_hasta = df_r[df_r["fecha_dt"] < fecha]
-        
+
         if len(df_g_hasta) < 60:
             continue
-        
+
         total_dias += 1
-        
-        for turno, loterias in [("mañana", ["GRANJITA", "LOTTO", "RULETA"]),
-                                  ("tarde", ["GRANJITA", "LOTTO", "RULETA"]),
-                                  ("animaniacs", ["GRANJITA", "LOTTO"])]:
-            
-            # Obtener fríos para ese turno
+
+        for turno in ["mañana", "tarde", "animaniacs"]:
             g_turno = filtrar_turno(df_g_hasta, turno)
             l_turno = filtrar_turno(df_l_hasta, turno)
-            r_turno = filtrar_turno(df_r_hasta, turno) if "RULETA" in loterias else pd.DataFrame()
-            
-            # Combinar los 3 para sacar fríos
-            df_turno_combinado = pd.concat([g_turno, l_turno, r_turno], ignore_index=True) if not r_turno.empty else pd.concat([g_turno, l_turno], ignore_index=True)
-            
-            frios = get_frios(df_turno_combinado, df_g, fecha)
+            r_turno = filtrar_turno(df_r_hasta, turno) if turno != "animaniacs" else pd.DataFrame()
+
+            if turno == "animaniacs":
+                df_comb = pd.concat([g_turno, l_turno], ignore_index=True)
+            else:
+                df_comb = pd.concat([g_turno, l_turno, r_turno], ignore_index=True)
+
+            frios, _ = get_frios_combinados(df_comb, df_g_hasta)
             p1, p2 = armar_2_pollas(frios)
-            
+
             if not p1:
                 continue
-            
-            # Ver qué salió ese día en ese turno (las 3 loterías)
-            df_g_dia = df_g[(df_g["fecha_dt"] == fecha)]
-            df_l_dia = df_l[(df_l["fecha_dt"] == fecha)]
-            df_r_dia = df_r[(df_r["fecha_dt"] == fecha)] if "RULETA" in loterias else pd.DataFrame()
-            
+
+            df_g_dia = df_g[df_g["fecha_dt"] == fecha]
+            df_l_dia = df_l[df_l["fecha_dt"] == fecha]
+            df_r_dia = df_r[df_r["fecha_dt"] == fecha] if turno != "animaniacs" else pd.DataFrame()
+
             g_bloque = filtrar_turno(df_g_dia, turno)
             l_bloque = filtrar_turno(df_l_dia, turno)
             r_bloque = filtrar_turno(df_r_dia, turno) if not df_r_dia.empty else pd.DataFrame()
-            
+
             nums_bloque = set()
             nums_bloque.update(g_bloque["numero"].tolist())
             nums_bloque.update(l_bloque["numero"].tolist())
             if not r_bloque.empty:
                 nums_bloque.update(r_bloque["numero"].tolist())
-            
-            # Verificar
+
             if verificar_polla(p1, nums_bloque):
                 resultados[turno]["polla_1"] += 1
             if verificar_polla(p2, nums_bloque):
                 resultados[turno]["polla_2"] += 1
-    
+
     return resultados, total_dias
 
 
 def main():
     st.title("🎰 Mega Polla Fríos")
-    st.caption("6 Pollas al día · Fríos puros (sin enjaulados 10+)")
+    st.caption("6 Pollas al día · Pool combinado · Con backtest")
 
     if st.button("🔄 Recargar"):
         st.cache_data.clear()
@@ -285,58 +277,39 @@ def main():
     mostrar_ultimo(df_r, "RULETA")
     st.markdown("---")
 
-    fecha_actual = df_g["fecha_dt"].iloc[-1]
-
-    # ═══════════════════════════════════════
-    # SUPER POLLA MAÑANA
-    # ═══════════════════════════════════════
+    # MAÑANA
     st.markdown("## 🌅 SUPER POLLA MAÑANA (9AM-1PM)")
-    
     g_m = filtrar_turno(df_g, "mañana")
     l_m = filtrar_turno(df_l, "mañana")
     r_m = filtrar_turno(df_r, "mañana")
-    
-    df_m_combinado = pd.concat([g_m, l_m, r_m], ignore_index=True)
-    frios_m = get_frios(df_m_combinado, df_g, fecha_actual)
+    df_m_comb = pd.concat([g_m, l_m, r_m], ignore_index=True)
+    frios_m, conteo_m = get_frios_combinados(df_m_comb, df_g)
     p1_m, p2_m = armar_2_pollas(frios_m)
-    
-    mostrar_pollas(p1_m, p2_m, "SUPER POLLA MAÑANA", ["Granjita", "Lotto", "Ruleta"])
+    mostrar_pollas(frios_m, p1_m, p2_m, "SUPER POLLA MAÑANA", ["Granjita", "Lotto", "Ruleta"], conteo_m)
     st.markdown("---")
 
-    # ═══════════════════════════════════════
-    # SUPER POLLA TARDE
-    # ═══════════════════════════════════════
+    # TARDE
     st.markdown("## 🌇 SUPER POLLA TARDE (3PM-7PM)")
-    
     g_t = filtrar_turno(df_g, "tarde")
     l_t = filtrar_turno(df_l, "tarde")
     r_t = filtrar_turno(df_r, "tarde")
-    
-    df_t_combinado = pd.concat([g_t, l_t, r_t], ignore_index=True)
-    frios_t = get_frios(df_t_combinado, df_g, fecha_actual)
+    df_t_comb = pd.concat([g_t, l_t, r_t], ignore_index=True)
+    frios_t, conteo_t = get_frios_combinados(df_t_comb, df_g)
     p1_t, p2_t = armar_2_pollas(frios_t)
-    
-    mostrar_pollas(p1_t, p2_t, "SUPER POLLA TARDE", ["Granjita", "Lotto", "Ruleta"])
+    mostrar_pollas(frios_t, p1_t, p2_t, "SUPER POLLA TARDE", ["Granjita", "Lotto", "Ruleta"], conteo_t)
     st.markdown("---")
 
-    # ═══════════════════════════════════════
     # ANIMANIACS
-    # ═══════════════════════════════════════
     st.markdown("## 🐾 ANIMANIACS (8AM-7PM)")
-    
     g_a = filtrar_turno(df_g, "todo")
     l_a = filtrar_turno(df_l, "todo")
-    
-    df_a_combinado = pd.concat([g_a, l_a], ignore_index=True)
-    frios_a = get_frios(df_a_combinado, df_g, fecha_actual)
+    df_a_comb = pd.concat([g_a, l_a], ignore_index=True)
+    frios_a, conteo_a = get_frios_combinados(df_a_comb, df_g)
     p1_a, p2_a = armar_2_pollas(frios_a)
-    
-    mostrar_pollas(p1_a, p2_a, "ANIMANIACS", ["Granjita", "Lotto"])
+    mostrar_pollas(frios_a, p1_a, p2_a, "ANIMANIACS", ["Granjita", "Lotto"], conteo_a)
     st.markdown("---")
 
-    # ═══════════════════════════════════════
     # BACKTEST
-    # ═══════════════════════════════════════
     st.markdown("## 📊 BACKTEST — ÚLTIMOS 55 DÍAS")
     st.caption("Verificamos si los 6 animalitos de cada polla salieron en el bloque")
 
@@ -346,34 +319,31 @@ def main():
     if total_dias > 0:
         st.markdown(f"**Días analizados:** {total_dias}")
         st.markdown("---")
-        
+
         col1, col2 = st.columns(2)
-        
         with col1:
             st.markdown("### 🌅 MAÑANA")
             st.metric("Polla 1 pegó", resultados["mañana"]["polla_1"])
             st.metric("Polla 2 pegó", resultados["mañana"]["polla_2"])
-        
         with col2:
             st.markdown("### 🌇 TARDE")
             st.metric("Polla 1 pegó", resultados["tarde"]["polla_1"])
             st.metric("Polla 2 pegó", resultados["tarde"]["polla_2"])
-        
+
         st.markdown("### 🐾 ANIMANIACS")
         col1, col2 = st.columns(2)
         with col1:
             st.metric("Polla 1 pegó", resultados["animaniacs"]["polla_1"])
         with col2:
             st.metric("Polla 2 pegó", resultados["animaniacs"]["polla_2"])
-        
-        st.markdown("---")
-        
+
         total_pegadas = (resultados["mañana"]["polla_1"] + resultados["mañana"]["polla_2"] +
                          resultados["tarde"]["polla_1"] + resultados["tarde"]["polla_2"] +
                          resultados["animaniacs"]["polla_1"] + resultados["animaniacs"]["polla_2"])
-        
+
+        st.markdown("---")
         st.metric("🎯 TOTAL POLLAS PEGADAS", total_pegadas)
-        
+
         if total_pegadas > 0:
             st.success(f"✅ El sistema habría pegado {total_pegadas} pollas en {total_dias} días")
         else:
