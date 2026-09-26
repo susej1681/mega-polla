@@ -4,7 +4,7 @@ import re
 from collections import Counter
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Mega Polla Fríos V3", page_icon="🎰", layout="centered")
+st.set_page_config(page_title="Mega Polla Fríos V4", page_icon="🎰", layout="centered")
 
 GRANJITA_ID = "1JpJgdyqu3HP4TlNyDocQ7WQjnsDfkUMP4Aj3q97TmHY"
 LOTTO_ID = "1Wm31ULE_YckLHEaek8Kre42UMdglkli-QeLpHxzFf-I"
@@ -105,11 +105,11 @@ def filtrar_turno(df, turno):
     if turno == "mañana": return df[(df["hora_num"] >= 9) & (df["hora_num"] <= 13)]
     if turno == "tarde": return df[(df["hora_num"] >= 15) & (df["hora_num"] <= 19)]
     if turno == "animaniacs": return df[(df["hora_num"] >= 8) & (df["hora_num"] <= 19)]
+    if turno == "quiniela": return df[(df["hora_num"] >= 10) & (df["hora_num"] <= 19)]
     return df
 
 
 def analizar_pool(df_combinado, dias_ventana):
-    """Analiza el pool: cuenta veces por animalito en toda la ventana."""
     if df_combinado.empty:
         return [], {}
 
@@ -125,19 +125,15 @@ def analizar_pool(df_combinado, dias_ventana):
 
 
 def armar_pollas(ordenados):
-    """Arma 2 pollas de 6 animalitos distintos cada una. Puede repetir entre pollas."""
     if len(ordenados) < 6:
         return [], []
 
-    # Pool de animalitos ordenados por actividad
     nums = [n for n, _ in ordenados]
 
-    # Completar con los que no salieron (para tener al menos 12)
     if len(nums) < 12:
         todos = [n for n in ANIMALITOS_DICT.keys() if n not in nums]
         nums.extend(todos)
 
-    # Polla 1: los 6 más activos
     polla_1 = []
     for n in nums:
         if n not in polla_1:
@@ -145,22 +141,18 @@ def armar_pollas(ordenados):
         if len(polla_1) >= 6:
             break
 
-    # Polla 2: los siguientes 6 (pero puede repetir hasta 2 de la polla 1 si son muy fuertes)
     polla_2 = []
-    # Primero los siguientes
     for n in nums:
         if n not in polla_1:
             polla_2.append(n)
         if len(polla_2) >= 4:
             break
-    # Completar con 2 de los top de polla_1 (los más fuertes)
     for n in polla_1[:3]:
         if len(polla_2) >= 6:
             break
         if n not in polla_2:
             polla_2.append(n)
 
-    # Si aún falta, completar
     if len(polla_2) < 6:
         for n in nums:
             if n not in polla_2:
@@ -172,7 +164,6 @@ def armar_pollas(ordenados):
 
 
 def mostrar_dia_completo(df_g, df_l, df_r, fecha_str, nombre_dia):
-    """Muestra un día combinado con las 3 loterías por hora."""
     g_dia = df_g[df_g["fecha"] == fecha_str]
     l_dia = df_l[df_l["fecha"] == fecha_str]
     r_dia = df_r[df_r["fecha"] == fecha_str]
@@ -202,11 +193,7 @@ def mostrar_dia_completo(df_g, df_l, df_r, fecha_str, nombre_dia):
     return True
 
 
-def mostrar_pollas(nombre, ordenados, conteo, loterias):
-    """Muestra las 2 pollas para un bloque."""
-    st.markdown(f"### {nombre}")
-    st.caption(f"Juega en: {' + '.join(loterias)}")
-
+def mostrar_pollas(ordenados, loterias):
     p1, p2 = armar_pollas(ordenados)
 
     if p1 and p2:
@@ -214,13 +201,15 @@ def mostrar_pollas(nombre, ordenados, conteo, loterias):
         st.success(" - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p1]))
         st.markdown("**⚡ POLLA 2:**")
         st.info(" - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p2]))
+        return p1, p2
     else:
         st.warning("Sin suficientes datos.")
+        return None, None
 
 
 def main():
-    st.title("🎰 Mega Polla Fríos V3")
-    st.caption("Vista día por día · Sin excluir los de hoy · 6 pollas al día")
+    st.title("🎰 Mega Polla Fríos V4")
+    st.caption("Vista día por día · Sin excluir los de hoy · 4 bloques con Quiniela")
 
     if st.button("🔄 Recargar"):
         st.cache_data.clear()
@@ -242,7 +231,6 @@ def main():
     st.markdown(f"## 📅 Hoy es **{nombre_dia}**")
     st.caption(f"Fecha: {hoy_str}")
 
-    # Días de la ventana
     dia_semana = hoy.weekday()
     if dia_semana == 0:
         dias_ventana = [hoy - timedelta(days=2), hoy - timedelta(days=1)]
@@ -259,13 +247,11 @@ def main():
             d += timedelta(days=1)
         desc = f"Semana en curso: {len(dias_ventana)} días"
 
-    # Agregar HOY a la ventana (para el análisis)
     dias_analisis = dias_ventana + [hoy]
 
     st.info(f"📊 **{desc}** + HOY")
     st.markdown("---")
 
-    # Vista día por día
     st.markdown("## 📅 ANÁLISIS DÍA POR DÍA")
     st.caption("(G) Granjita · (L) Lotto · (R) Ruleta")
 
@@ -278,36 +264,68 @@ def main():
 
     st.markdown("---")
 
-    # POLLAS
     st.markdown("## 🎯 POLLAS PARA HOY")
 
-    # MAÑANA (9AM-1PM) - 3 loterías
+    # MAÑANA
     st.markdown("### 🌅 SUPER POLLA MAÑANA (9AM-1PM)")
     g_m = filtrar_turno(df_g, "mañana")
     l_m = filtrar_turno(df_l, "mañana")
     r_m = filtrar_turno(df_r, "mañana")
     df_m = pd.concat([g_m, l_m, r_m], ignore_index=True)
-    ordenados_m, conteo_m = analizar_pool(df_m, dias_analisis)
-    mostrar_pollas("", ordenados_m, conteo_m, ["Granjita", "Lotto", "Ruleta"])
+    ordenados_m, _ = analizar_pool(df_m, dias_analisis)
+    st.caption("Juega en: Granjita + Lotto + Ruleta")
+    mostrar_pollas(ordenados_m, ["Granjita", "Lotto", "Ruleta"])
     st.markdown("---")
 
-    # TARDE (3PM-7PM) - 3 loterías
+    # QUINIELA
+    st.markdown("### 🎯 QUINIELA (10AM hasta ganador)")
+    st.caption("Juega en: Granjita + Lotto + Ruleta · Costo: 700 Bs")
+
+    g_q = filtrar_turno(df_g, "quiniela")
+    l_q = filtrar_turno(df_l, "quiniela")
+    r_q = filtrar_turno(df_r, "quiniela")
+    df_q = pd.concat([g_q, l_q, r_q], ignore_index=True)
+    ordenados_q, _ = analizar_pool(df_q, dias_analisis)
+
+    p1_q, p2_q = armar_pollas(ordenados_q)
+
+    if p1_q:
+        st.markdown("**🎯 QUINIELA 1 (recomendada):**")
+        st.success(" - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p1_q]))
+
+        # Botón para ver la 2da quiniela
+        if st.button("➕ Ver 2da Quiniela"):
+            st.session_state["mostrar_quiniela_2"] = True
+
+        if st.session_state.get("mostrar_quiniela_2", False) and p2_q:
+            st.markdown("**⚡ QUINIELA 2 (alternativa):**")
+            st.info(" - ".join([f"{fmt_num(n)} {ANIMALITOS_DICT[n]}" for n in p2_q]))
+            if st.button("➖ Ocultar 2da Quiniela"):
+                st.session_state["mostrar_quiniela_2"] = False
+                st.rerun()
+    else:
+        st.warning("Sin suficientes datos.")
+    st.markdown("---")
+
+    # TARDE
     st.markdown("### 🌇 SUPER POLLA TARDE (3PM-7PM)")
     g_t = filtrar_turno(df_g, "tarde")
     l_t = filtrar_turno(df_l, "tarde")
     r_t = filtrar_turno(df_r, "tarde")
     df_t = pd.concat([g_t, l_t, r_t], ignore_index=True)
-    ordenados_t, conteo_t = analizar_pool(df_t, dias_analisis)
-    mostrar_pollas("", ordenados_t, conteo_t, ["Granjita", "Lotto", "Ruleta"])
+    ordenados_t, _ = analizar_pool(df_t, dias_analisis)
+    st.caption("Juega en: Granjita + Lotto + Ruleta")
+    mostrar_pollas(ordenados_t, ["Granjita", "Lotto", "Ruleta"])
     st.markdown("---")
 
-    # ANIMANIACS (8AM-7PM) - 2 loterías (Granjita + Lotto)
+    # ANIMANIACS
     st.markdown("### 🐾 ANIMANIACS (8AM-7PM)")
+    st.caption("Juega en: Granjita + Lotto · Premio especial si los 6 salen entre 8AM-12PM")
     g_a = filtrar_turno(df_g, "animaniacs")
     l_a = filtrar_turno(df_l, "animaniacs")
     df_a = pd.concat([g_a, l_a], ignore_index=True)
-    ordenados_a, conteo_a = analizar_pool(df_a, dias_analisis)
-    mostrar_pollas("", ordenados_a, conteo_a, ["Granjita", "Lotto"])
+    ordenados_a, _ = analizar_pool(df_a, dias_analisis)
+    mostrar_pollas(ordenados_a, ["Granjita", "Lotto"])
 
     st.markdown("---")
     st.caption("Sin excluir los que ya salieron hoy · Puede repetir animalitos entre pollas si el sistema lo ve fuerte")
